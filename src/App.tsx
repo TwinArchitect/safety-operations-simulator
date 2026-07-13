@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import type { CSSProperties } from 'react'
 import { PixiScene } from './game/PixiScene'
 import { SimulationEngine } from './simulation/SimulationEngine'
 import { scenarioCatalog } from './simulation/scenarioVariants'
@@ -19,6 +20,9 @@ function App() {
   const [examResults, setExamResults] = useState<ExamResult[]>([])
   const [autoStartExam, setAutoStartExam] = useState(false)
   const [examComplete, setExamComplete] = useState(false)
+  const [selectedActionIndex, setSelectedActionIndex] = useState(0)
+  const [executingAction, setExecutingAction] = useState<{ id: string; label: string; duration: number }>()
+  const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const selectedScenario = scenarioCatalog.find(
     (scenario) => scenario.id === selectedScenarioId,
   ) ?? scenarioCatalog[0]
@@ -45,28 +49,84 @@ function App() {
     ? Math.round(examResults.reduce((total, result) => total + result.score, 0) / examResults.length)
     : 0
 
+  const beginAction = (action: { id: string; label: string; kind: 'inspect' | 'operate' | 'enter' }) => {
+    if (executingAction || state.completedActionIds.includes(action.id)) return
+    const duration = action.kind === 'inspect' ? 850 : action.kind === 'operate' ? 1250 : 650
+    setExecutingAction({ id: action.id, label: action.label, duration })
+    window.setTimeout(() => {
+      engine.performAction(action.id)
+      setExecutingAction(undefined)
+    }, duration)
+  }
+
   useEffect(() => {
     if (!activeEntity || state.phase !== 'running') return
     const handleActionKey = (event: KeyboardEvent) => {
+      if (executingAction) {
+        event.preventDefault()
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         engine.closeInteraction()
+        return
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        const direction = event.key === 'ArrowUp' ? -1 : 1
+        setSelectedActionIndex((current) => {
+          const count = activeEntity.actions.length
+          for (let offset = 1; offset <= count; offset += 1) {
+            const candidate = (current + direction * offset + count * 2) % count
+            const action = activeEntity.actions[candidate]
+            if (!state.completedActionIds.includes(action.id)) return candidate
+          }
+          return current
+        })
+        return
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        const action = activeEntity.actions[selectedActionIndex]
+        if (action && !state.completedActionIds.includes(action.id)) {
+          beginAction(action)
+        }
         return
       }
       if (event.repeat || !/^[1-9]$/.test(event.key)) return
       const action = activeEntity.actions[Number(event.key) - 1]
       if (!action || state.completedActionIds.includes(action.id)) return
       event.preventDefault()
-      engine.performAction(action.id)
+      beginAction(action)
     }
     window.addEventListener('keydown', handleActionKey)
     return () => window.removeEventListener('keydown', handleActionKey)
-  }, [activeEntity, engine, state.completedActionIds, state.phase])
+  }, [activeEntity, engine, executingAction, selectedActionIndex, state.completedActionIds, state.phase])
+
+  useEffect(() => {
+    setSelectedActionIndex(0)
+  }, [state.activeEntityId])
+
+  useEffect(() => {
+    const togglePanel = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || state.phase !== 'running' || state.activeEntityId) return
+      event.preventDefault()
+      setSidePanelOpen((open) => !open)
+    }
+    window.addEventListener('keydown', togglePanel)
+    return () => window.removeEventListener('keydown', togglePanel)
+  }, [state.activeEntityId, state.phase])
 
   const startTraining = () => {
     setExamOrderIds([])
     setExamResults([])
     setExamComplete(false)
+    engine.start('training')
+  }
+
+  const retryTraining = () => {
+    setExecutingAction(undefined)
+    engine.reset()
     engine.start('training')
   }
 
@@ -153,10 +213,13 @@ function App() {
               <span className="role-label">角色：{scenario.role}</span>
             </div>
             <div className="control-hints">
-              <kbd>WASD</kbd> 移动 <kbd>E</kbd> 交互 <kbd>R</kbd> 重置
+              <kbd>WASD</kbd> 移动 <kbd>SHIFT</kbd> 快跑 <kbd>E</kbd> 交互 <kbd>I</kbd> 装备 <kbd>R</kbd> 重置
+              <button className="panel-toggle" onClick={() => setSidePanelOpen((open) => !open)} type="button">
+                <kbd>TAB</kbd> 任务 <span>{scenario.objectives.filter((objective) => objective.completionFlags.every((flag) => state.flags.includes(flag))).length}/{scenario.objectives.length}</span>
+              </button>
             </div>
           </div>
-          <div className="scene-viewport">
+          <div className={`scene-viewport${activeEntity && state.phase === 'running' ? ' interaction-active' : ''}`}>
             <PixiScene engine={engine} />
 
             {activeEntity && state.phase === 'running' && (
@@ -173,10 +236,10 @@ function App() {
                 <div className="action-list">
                   {activeEntity.actions.map((action, index) => (
                     <button
-                      className={`device-action action-${action.kind}`}
-                      disabled={state.completedActionIds.includes(action.id)}
+                      className={`device-action action-${action.kind}${selectedActionIndex === index ? ' selected' : ''}`}
+                      disabled={Boolean(executingAction) || state.completedActionIds.includes(action.id)}
                       key={action.id}
-                      onClick={() => engine.performAction(action.id)}
+                      onClick={() => beginAction(action)}
                       type="button"
                     >
                       <span className="action-copy"><kbd className="action-key">{index + 1}</kbd>{action.label}</span>
@@ -184,7 +247,13 @@ function App() {
                     </button>
                   ))}
                 </div>
-                <span className="keyboard-tip">按数字键选择 · Esc 关闭</span>
+                {executingAction && (
+                  <div className="action-progress" style={{ '--action-duration': `${executingAction.duration}ms` } as CSSProperties}>
+                    <span>{executingAction.label}执行中…</span>
+                    <i />
+                  </div>
+                )}
+                <span className="keyboard-tip">↑↓ 选择 · Enter 确认 · 数字键快捷操作 · Esc 关闭</span>
               </section>
             )}
 
@@ -258,7 +327,7 @@ function App() {
                     {examIndex < examOrderIds.length - 1 ? '进入下一题' : '查看考试总报告'}
                   </button>
                 ) : (
-                  <button className="primary-button" onClick={engine.reset}>重新训练</button>
+                  <button className="primary-button" onClick={retryTraining}>立即重试</button>
                 )}
               </div>
             )}
@@ -293,7 +362,8 @@ function App() {
           </div>
         </div>
 
-        <aside className="side-panel">
+        <aside className={`side-panel${sidePanelOpen ? ' open' : ''}`}>
+          <button className="side-panel-close" onClick={() => setSidePanelOpen(false)} type="button" aria-label="关闭任务抽屉">×</button>
           <section className="panel-section">
             <div className="section-heading">
               <span className="eyebrow">任务目标</span>

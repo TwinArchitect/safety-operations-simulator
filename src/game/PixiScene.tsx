@@ -2,26 +2,58 @@ import { useEffect, useRef } from 'react'
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { SimulationEngine } from '../simulation/SimulationEngine'
 import type { ScenarioEntity, ScenarioFaultType, ScenarioZone, SimulationState } from '../simulation/types'
-import { getDeviceAssetSpec, loadDeviceTextures, loadEnvironmentTextures, loadPlayerTexture, loadSceneBackground, type EnvironmentAssetId } from './sceneAssets'
+import { getDeviceAssetSpec, type EnvironmentAssetId } from './sceneAssets'
 
 interface PixiSceneProps {
   engine: SimulationEngine
 }
 
-const WIDTH = 900
+const WIDTH = 1400
 const HEIGHT = 580
-const WORLD_WIDTH = 1586
-const WORLD_HEIGHT = 992
+const WORLD_WIDTH = 1400
+const WORLD_HEIGHT = 900
 const PLAYER_RADIUS = 15
-const PLAYER_SPEED = 3.6
-const PLAYER_START = { x: 790, y: 835 }
+const PLAYER_SPEED = 4.4
+const PLAYER_START = { x: 490, y: 750 }
 
 const obstacles = [
-  { x: 170, y: 175, width: 390, height: 390 },
-  { x: 770, y: 330, width: 190, height: 225 },
-  { x: 1090, y: 260, width: 400, height: 380 },
-  { x: 40, y: 610, width: 255, height: 190 },
-  { x: 1280, y: 655, width: 205, height: 225 },
+  { x: 530, y: 235, width: 120, height: 100 },
+  { x: 530, y: 425, width: 120, height: 100 },
+  { x: 695, y: 390, width: 100, height: 115 },
+  { x: 245, y: 225, width: 110, height: 90 },
+  { x: 95, y: 705, width: 110, height: 100 },
+  { x: 995, y: 260, width: 90, height: 80 },
+  { x: 995, y: 435, width: 90, height: 80 },
+]
+
+const structuralWalls = [
+  // 监测区：右侧保留一个出口
+  { x: 60, y: 70, width: 340, height: 16 },
+  { x: 60, y: 354, width: 340, height: 16 },
+  { x: 60, y: 70, width: 16, height: 300 },
+  { x: 384, y: 70, width: 16, height: 120 },
+  { x: 384, y: 250, width: 16, height: 120 },
+  // 泵组区：左、右、下方各保留一个通道口
+  { x: 460, y: 70, width: 400, height: 16 },
+  { x: 460, y: 70, width: 16, height: 120 },
+  { x: 460, y: 250, width: 16, height: 320 },
+  { x: 844, y: 70, width: 16, height: 230 },
+  { x: 844, y: 370, width: 16, height: 200 },
+  { x: 460, y: 554, width: 145, height: 16 },
+  { x: 685, y: 554, width: 175, height: 16 },
+  // 支路区：左侧入口、下方出口
+  { x: 920, y: 70, width: 410, height: 16 },
+  { x: 920, y: 70, width: 16, height: 230 },
+  { x: 920, y: 370, width: 16, height: 240 },
+  { x: 1314, y: 70, width: 16, height: 540 },
+  { x: 920, y: 594, width: 160, height: 16 },
+  { x: 1160, y: 594, width: 170, height: 16 },
+  // 准备区：右侧与主通道连接
+  { x: 60, y: 650, width: 16, height: 180 },
+  { x: 60, y: 650, width: 440, height: 16 },
+  { x: 60, y: 814, width: 520, height: 16 },
+  { x: 564, y: 650, width: 16, height: 65 },
+  { x: 564, y: 775, width: 16, height: 55 },
 ]
 
 const colors = {
@@ -46,6 +78,7 @@ interface DeviceView {
 
 interface EnvironmentEffects {
   flowDots: Graphics[]
+  flowArrows: Array<{ view: Graphics; baseX: number; baseY: number; angle: number }>
   leak: Graphics
   alarm: Graphics
   alarmRing: Graphics
@@ -83,29 +116,26 @@ export function PixiScene({ engine }: PixiSceneProps) {
 
       const world = new Container()
       app.stage.addChild(world)
-      const [playerTexture, sceneBackground] = await Promise.all([
-        loadPlayerTexture(),
-        loadSceneBackground(),
-      ])
-      let deviceTextures = new Map<string, Texture>()
-      if (sceneBackground) {
-        const background = new Sprite(sceneBackground)
-        background.width = WORLD_WIDTH
-        background.height = WORLD_HEIGHT
-        world.addChild(background)
-      } else {
-        const [fallbackDevices, environmentTextures] = await Promise.all([
-          loadDeviceTextures(),
-          loadEnvironmentTextures(),
-        ])
-        deviceTextures = fallbackDevices
-        drawRoom(world, engine.scenario.zones, environmentTextures)
-      }
-      const effects = createEnvironmentEffects(world, Boolean(sceneBackground))
+      const dangerVignette = createDangerVignette()
+      app.stage.addChild(dangerVignette)
+      const riskIndicator = createRiskIndicator()
+      app.stage.addChild(riskIndicator)
+      const timeWarning = createTimeWarning()
+      app.stage.addChild(timeWarning)
+      const inventoryHud = createInventoryHud()
+      app.stage.addChild(inventoryHud)
+      const feedback = createFeedbackBanner()
+      app.stage.addChild(feedback)
+      const playerTexture = undefined
+      const deviceTextures = new Map<string, Texture>()
+      drawGrayboxWorld(world, engine.scenario.zones)
+      const effects = createEnvironmentEffects(world)
+      const guidance = createGuidanceBeacon()
+      world.addChild(guidance)
 
       const deviceViews = new Map<string, DeviceView>()
       engine.scenario.entities.forEach((entity) => {
-        const view = createDevice(entity, deviceTextures.get(entity.id), Boolean(sceneBackground))
+        const view = createDevice(entity, deviceTextures.get(entity.id), false)
         view.container.x = entity.x
         view.container.y = entity.y
         deviceViews.set(entity.id, view)
@@ -114,6 +144,8 @@ export function PixiScene({ engine }: PixiSceneProps) {
 
       const player = createPlayer(playerTexture)
       const playerSprite = player.getChildByLabel('player-sprite') as Sprite | undefined
+      const carriedTool = player.getChildByLabel('carried-tool') as Graphics | undefined
+      const ppeIndicator = player.getChildByLabel('ppe-indicator') as Graphics | undefined
       player.x = PLAYER_START.x
       player.y = PLAYER_START.y
       world.addChild(player)
@@ -128,9 +160,45 @@ export function PixiScene({ engine }: PixiSceneProps) {
       let elapsedAnimation = 0
       let interactionHold = 0
       let heldEntityId: string | undefined
+      let velocityX = 0
+      let velocityY = 0
+      let feedbackTimer = 0
+      let lastEventId: number | undefined
+      let inventoryTimer = 0
+      let inventoryPinned = false
+      let lastInventoryKey = ''
 
       const renderState = () => {
         const state = engine.getSnapshot()
+        const latestEvent = state.events[0]
+        const inventoryLabel = inventoryHud.getChildByLabel('inventory-label') as Text
+        const inventoryKey = state.inventoryItemIds.join('|')
+        if (inventoryKey !== lastInventoryKey) {
+          lastInventoryKey = inventoryKey
+          inventoryTimer = state.inventoryItemIds.length > 0 ? 3200 : 0
+        }
+        inventoryLabel.text = state.inventoryItemIds.length > 0
+          ? state.inventoryItemIds
+            .map((itemId) => engine.scenario.inventoryItems.find((item) => item.id === itemId)?.label)
+            .filter(Boolean)
+            .join('  ·  ')
+          : '暂无装备'
+        if (carriedTool) carriedTool.visible = state.inventoryItemIds.includes('valve-tool')
+        if (ppeIndicator) ppeIndicator.visible = state.inventoryItemIds.includes('anti-slip-ppe')
+        if (latestEvent && latestEvent.id !== lastEventId) {
+          lastEventId = latestEvent.id
+          feedbackTimer = 2600
+          feedback.visible = true
+          feedback.alpha = 1
+          const label = feedback.getChildByLabel('feedback-label') as Text
+          label.text = latestEvent.message
+          const plate = feedback.getChildByLabel('feedback-plate') as Graphics
+          plate.tint = latestEvent.tone === 'danger'
+            ? colors.red
+            : latestEvent.tone === 'warning'
+              ? colors.amber
+              : colors.teal
+        }
         if (state.phase === 'ready' && previousPhase !== 'ready') {
           player.x = PLAYER_START.x
           player.y = PLAYER_START.y
@@ -141,9 +209,7 @@ export function PixiScene({ engine }: PixiSceneProps) {
           const view = deviceViews.get(entity.id)
           if (!view) return
           if (view.embedded) return
-          const completed = entity.actions.some((action) =>
-            state.completedActionIds.includes(action.id),
-          )
+          const completed = isEntityResolved(entity, state)
           redrawDevice(view.body, entity, completed)
         })
       }
@@ -153,10 +219,14 @@ export function PixiScene({ engine }: PixiSceneProps) {
 
       const onKeyDown = (event: KeyboardEvent) => {
         const key = event.key.toLowerCase()
-        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'e'].includes(key)) {
+        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'e', 'i', 'shift'].includes(key)) {
           event.preventDefault()
         }
         keys.add(key)
+        if (key === 'i' && !event.repeat) {
+          inventoryPinned = !inventoryPinned
+          inventoryTimer = 0
+        }
         if (key === 'r') engine.reset()
       }
 
@@ -166,6 +236,36 @@ export function PixiScene({ engine }: PixiSceneProps) {
 
       app.ticker.add((ticker) => {
         const state = engine.getSnapshot()
+        inventoryTimer = Math.max(0, inventoryTimer - ticker.deltaMS)
+        inventoryHud.visible = state.inventoryItemIds.length > 0 && (inventoryPinned || inventoryTimer > 0)
+        inventoryHud.alpha = inventoryPinned ? 1 : Math.min(1, inventoryTimer / 450)
+        const dangerIntensity = Math.max(0, (state.risk - 45) / 55)
+        dangerVignette.alpha = state.phase === 'running'
+          ? dangerIntensity * (0.58 + Math.sin(elapsedAnimation * 5.5) * 0.22)
+          : 0
+        riskIndicator.visible = state.phase === 'running' && state.risk >= 45
+        if (riskIndicator.visible) {
+          const riskLabel = riskIndicator.getChildByLabel('risk-label') as Text
+          riskLabel.text = `${state.risk >= 78 ? '危险升级' : state.risk >= 60 ? '高风险' : '风险上升'}  ${Math.round(state.risk)} / 100`
+          const riskBar = riskIndicator.getChildByLabel('risk-bar') as Graphics
+          riskBar.clear()
+            .roundRect(-82, 13, 164, 4, 2)
+            .fill({ color: 0x2d1518, alpha: 0.95 })
+            .roundRect(-82, 13, 164 * (state.risk / 100), 4, 2)
+            .fill(state.risk >= 78 ? 0xff3d46 : 0xff835c)
+          riskIndicator.alpha = 0.78 + Math.sin(elapsedAnimation * 5.5) * 0.22
+        }
+        timeWarning.visible = state.phase === 'running' && state.secondsRemaining <= 30
+        if (timeWarning.visible) {
+          const timeLabel = timeWarning.getChildByLabel('time-label') as Text
+          timeLabel.text = `处置倒计时  ${state.secondsRemaining}s`
+          timeWarning.alpha = 0.72 + Math.sin(elapsedAnimation * 7) * 0.28
+        }
+        if (feedbackTimer > 0) {
+          feedbackTimer -= ticker.deltaMS
+          feedback.alpha = Math.min(1, feedbackTimer / 350)
+          if (feedbackTimer <= 0) feedback.visible = false
+        }
         elapsedAnimation += ticker.deltaMS / 1000
         updateEnvironmentEffects(effects, state, engine.scenario.faultType, elapsedAnimation)
         engine.scenario.entities.forEach((entity) => {
@@ -179,6 +279,17 @@ export function PixiScene({ engine }: PixiSceneProps) {
             elapsedAnimation,
           )
         })
+        const guidanceEntityId = state.mode === 'training' && state.phase === 'running'
+          ? getGuidanceEntityId(state)
+          : undefined
+        const guidanceEntity = engine.scenario.entities.find((entity) => entity.id === guidanceEntityId)
+        guidance.visible = Boolean(guidanceEntity && !state.activeEntityId)
+        if (guidanceEntity) {
+          guidance.position.set(guidanceEntity.x, guidanceEntity.y)
+          const pulse = 1 + Math.sin(elapsedAnimation * 4) * 0.08
+          guidance.scale.set(pulse)
+          guidance.alpha = 0.72 + Math.sin(elapsedAnimation * 4) * 0.2
+        }
         if (state.phase === 'running') {
           let dx = 0
           let dy = 0
@@ -191,19 +302,36 @@ export function PixiScene({ engine }: PixiSceneProps) {
 
           if (dx !== 0 || dy !== 0) {
             const length = Math.hypot(dx, dy)
-            const nextX = player.x + (dx / length) * PLAYER_SPEED * ticker.deltaTime
-            const nextY = player.y + (dy / length) * PLAYER_SPEED * ticker.deltaTime
+            const sprint = keys.has('shift') ? 1.45 : 1
+            const targetX = (dx / length) * PLAYER_SPEED * sprint
+            const targetY = (dy / length) * PLAYER_SPEED * sprint
+            const acceleration = Math.min(1, 0.28 * ticker.deltaTime)
+            velocityX += (targetX - velocityX) * acceleration
+            velocityY += (targetY - velocityY) * acceleration
+            const nextX = player.x + velocityX * ticker.deltaTime
+            const nextY = player.y + velocityY * ticker.deltaTime
             const boundedX = Math.max(30, Math.min(WORLD_WIDTH - 30, nextX))
             const boundedY = Math.max(40, Math.min(WORLD_HEIGHT - 30, nextY))
             if (!isBlocked(boundedX, player.y)) player.x = boundedX
+            else velocityX *= -0.12
             if (!isBlocked(player.x, boundedY)) player.y = boundedY
+            else velocityY *= -0.12
             if (!playerTexture) player.rotation = Math.atan2(dy, dx) + Math.PI / 2
             if (playerSprite) {
               playerSprite.y = Math.sin(elapsedAnimation * 12) * 1.5
               if (dx !== 0) playerSprite.scale.x = Math.abs(playerSprite.scale.x) * (dx < 0 ? -1 : 1)
             }
-          } else if (playerSprite) {
-            playerSprite.y *= 0.72
+          } else {
+            const friction = Math.pow(0.74, ticker.deltaTime)
+            velocityX *= friction
+            velocityY *= friction
+            if (Math.abs(velocityX) > 0.04 || Math.abs(velocityY) > 0.04) {
+              const nextX = Math.max(30, Math.min(WORLD_WIDTH - 30, player.x + velocityX * ticker.deltaTime))
+              const nextY = Math.max(40, Math.min(WORLD_HEIGHT - 30, player.y + velocityY * ticker.deltaTime))
+              if (!isBlocked(nextX, player.y)) player.x = nextX
+              if (!isBlocked(player.x, nextY)) player.y = nextY
+            }
+            if (playerSprite) playerSprite.y *= 0.72
           }
 
           engine.tick(ticker.deltaMS / 1000)
@@ -221,6 +349,11 @@ export function PixiScene({ engine }: PixiSceneProps) {
         nearbyEntity = findNearbyEntity(player.x, player.y, engine.scenario.entities)
         deviceViews.forEach((view, entityId) => {
           if (view.embedded) view.body.visible = nearbyEntity?.id === entityId && state.phase === 'running' && !state.activeEntityId
+          const selected = state.activeEntityId === entityId
+          const focused = (nearbyEntity?.id === entityId || selected) && state.phase === 'running'
+          const targetScale = selected ? 1.12 : focused ? 1.04 + Math.sin(elapsedAnimation * 5) * 0.025 : 1
+          view.container.scale.x += (targetScale - view.container.scale.x) * 0.18 * ticker.deltaTime
+          view.container.scale.y += (targetScale - view.container.scale.y) * 0.18 * ticker.deltaTime
         })
         prompt.visible = Boolean(nearbyEntity && state.phase === 'running' && !state.activeEntityId)
         if (nearbyEntity) {
@@ -240,11 +373,7 @@ export function PixiScene({ engine }: PixiSceneProps) {
           }
           interactionHold += ticker.deltaMS
           if (interactionHold >= 700) {
-            const [singleAction] = nearbyEntity.actions
             engine.interact(nearbyEntity.id)
-            if (nearbyEntity.actions.length === 1 && singleAction.kind === 'inspect') {
-              engine.performAction(singleAction.id)
-            }
             keys.delete('e')
             interactionHold = 0
             heldEntityId = undefined
@@ -254,8 +383,18 @@ export function PixiScene({ engine }: PixiSceneProps) {
           heldEntityId = undefined
         }
 
-        const cameraX = Math.max(WIDTH - WORLD_WIDTH, Math.min(0, WIDTH / 2 - player.x))
-        const cameraY = Math.max(HEIGHT - WORLD_HEIGHT, Math.min(0, HEIGHT / 2 - player.y))
+        const shake = state.phase === 'running' && state.risk >= 78
+          ? ((state.risk - 78) / 22) * 4
+          : 0
+        const shakeX = shake ? Math.sin(elapsedAnimation * 31) * shake : 0
+        const shakeY = shake ? Math.cos(elapsedAnimation * 27) * shake : 0
+        const focusedEntity = state.activeEntityId
+          ? engine.scenario.entities.find((entity) => entity.id === state.activeEntityId)
+          : undefined
+        const cameraTargetX = focusedEntity ? focusedEntity.x : player.x + velocityX * 14
+        const cameraTargetY = focusedEntity ? focusedEntity.y + 90 : player.y + velocityY * 14
+        const cameraX = Math.max(WIDTH - WORLD_WIDTH, Math.min(0, WIDTH / 2 - cameraTargetX + shakeX))
+        const cameraY = Math.max(HEIGHT - WORLD_HEIGHT, Math.min(0, HEIGHT / 2 - cameraTargetY + shakeY))
         world.x += (cameraX - world.x) * Math.min(1, 0.14 * ticker.deltaTime)
         world.y += (cameraY - world.y) * Math.min(1, 0.14 * ticker.deltaTime)
       })
@@ -280,6 +419,129 @@ export function PixiScene({ engine }: PixiSceneProps) {
   }, [engine])
 
   return <div className="pixi-host" ref={hostRef} />
+}
+
+function drawGrayboxWorld(world: Container, zones: ScenarioZone[]) {
+  const floor = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill(0x0b1419)
+  for (let x = 0; x <= WORLD_WIDTH; x += 50) {
+    floor.moveTo(x, 0).lineTo(x, WORLD_HEIGHT)
+  }
+  for (let y = 0; y <= WORLD_HEIGHT; y += 50) {
+    floor.moveTo(0, y).lineTo(WORLD_WIDTH, y)
+  }
+  floor.stroke({ color: 0x1a2a31, width: 1, alpha: 0.7 })
+  world.addChild(floor)
+
+  const walls = new Graphics()
+    .rect(0, 0, WORLD_WIDTH, 28).fill(0x34434a)
+    .rect(0, WORLD_HEIGHT - 28, WORLD_WIDTH, 28).fill(0x34434a)
+    .rect(0, 0, 28, WORLD_HEIGHT).fill(0x34434a)
+    .rect(WORLD_WIDTH - 28, 0, 28, WORLD_HEIGHT).fill(0x34434a)
+  world.addChild(walls)
+
+  const areas = [
+    { x: 76, y: 86, width: 308, height: 268, label: '监测与告警确认区', color: 0x27424a },
+    { x: 476, y: 86, width: 368, height: 468, label: '泵组设备区', color: 0x3c3827 },
+    { x: 936, y: 86, width: 378, height: 508, label: '支路隔离区', color: 0x472d2d },
+    { x: 76, y: 666, width: 488, height: 148, label: '安全准备区', color: 0x263c37 },
+  ]
+  areas.forEach((area) => {
+    const zone = new Graphics()
+      .roundRect(area.x, area.y, area.width, area.height, 10)
+      .fill({ color: area.color, alpha: 0.24 })
+      .stroke({ color: area.color, width: 2, alpha: 0.95 })
+    const label = new Text({
+      text: area.label,
+      style: { fill: 0x789097, fontSize: 14, fontFamily: 'sans-serif', fontWeight: '600' },
+    })
+    label.position.set(area.x + 18, area.y + 14)
+    world.addChild(zone, label)
+  })
+
+  const route = new Graphics()
+    .roundRect(580, 716, 734, 64, 8)
+    .fill({ color: 0x294048, alpha: 0.32 })
+    .stroke({ color: 0x8a7440, width: 2, alpha: 0.42 })
+    .roundRect(400, 194, 60, 52, 5)
+    .fill({ color: 0x294048, alpha: 0.32 })
+    .roundRect(860, 304, 60, 62, 5)
+    .fill({ color: 0x294048, alpha: 0.32 })
+    .roundRect(610, 570, 64, 146, 5)
+    .fill({ color: 0x294048, alpha: 0.32 })
+    .roundRect(1080, 610, 80, 106, 5)
+    .fill({ color: 0x294048, alpha: 0.32 })
+  world.addChild(route)
+
+  const corridorLabels = [
+    { text: '现场复核 →', x: 405, y: 205 },
+    { text: '故障隔离 →', x: 862, y: 316 },
+    { text: '↓ 安全准备', x: 612, y: 590 },
+    { text: '↓ 紧急撤离', x: 1082, y: 628 },
+  ]
+  corridorLabels.forEach((item) => {
+    const label = new Text({
+      text: item.text,
+      style: { fill: 0xd6b45c, fontSize: 10, fontFamily: 'monospace', fontWeight: '700' },
+    })
+    label.position.set(item.x, item.y)
+    label.alpha = 0.72
+    world.addChild(label)
+  })
+
+  const partitions = new Graphics()
+  structuralWalls.forEach((wall) => {
+    partitions
+      .roundRect(wall.x, wall.y, wall.width, wall.height, 3)
+      .fill(0x3a4a51)
+      .stroke({ color: 0x62757d, width: 1, alpha: 0.7 })
+  })
+  world.addChild(partitions)
+
+  const pipes = new Graphics()
+    .moveTo(500, 245).lineTo(1190, 245)
+    .moveTo(590, 245).lineTo(590, 475).lineTo(1040, 475)
+    .moveTo(520, 165).lineTo(520, 245)
+    .moveTo(1040, 245).lineTo(1040, 535)
+    .stroke({ color: 0x526871, width: 14, alpha: 0.8 })
+    .circle(852, 245, 13).stroke({ color: 0x8ba0a8, width: 4, alpha: 0.8 })
+    .circle(928, 245, 13).stroke({ color: 0x8ba0a8, width: 4, alpha: 0.8 })
+    .circle(852, 475, 13).stroke({ color: 0x8ba0a8, width: 4, alpha: 0.8 })
+    .circle(928, 475, 13).stroke({ color: 0x8ba0a8, width: 4, alpha: 0.8 })
+  world.addChild(pipes)
+
+  const signalLink = new Graphics()
+    .moveTo(165, 175)
+    .lineTo(220, 175)
+    .lineTo(220, 270)
+    .lineTo(300, 270)
+    .stroke({ color: colors.blue, width: 3, alpha: 0.6 })
+  for (let offset = 0; offset < 5; offset += 1) {
+    signalLink.circle(220 + offset * 17, 270, 3).fill({ color: colors.blue, alpha: 0.72 })
+  }
+  world.addChild(signalLink)
+
+  obstacles.forEach((obstacle) => {
+    const block = new Graphics()
+      .roundRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height, 8)
+      .fill({ color: 0x27383f, alpha: 0.48 })
+      .stroke({ color: 0x536a73, width: 2, alpha: 0.7 })
+    world.addChild(block)
+  })
+
+  zones.forEach((zone) => {
+    const hazard = new Graphics()
+      .rect(zone.x, zone.y, zone.width, zone.height)
+      .fill({ color: colors.red, alpha: 0.12 })
+      .stroke({ color: colors.red, width: 2, alpha: 0.65 })
+    world.addChild(hazard)
+  })
+
+  const title = new Text({
+    text: 'GRAYBOX PLAYTEST  /  LUBE OIL RESPONSE',
+    style: { fill: 0x6d838b, fontSize: 12, fontFamily: 'monospace', letterSpacing: 2 },
+  })
+  title.position.set(52, 48)
+  world.addChild(title)
 }
 
 function drawRoom(world: Container, zones: ScenarioZone[], environmentTextures: Map<EnvironmentAssetId, Texture>) {
@@ -670,12 +932,14 @@ function updateDeviceMotion(
   }
 }
 
-function createEnvironmentEffects(world: Container, embeddedScene = false): EnvironmentEffects {
+function createEnvironmentEffects(world: Container): EnvironmentEffects {
   const flowDots: Graphics[] = []
   const flowPositions = [
-    [175, 132], [235, 132], [295, 132], [375, 132], [435, 132], [495, 132],
-    [585, 132], [645, 132], [700, 150], [535, 210], [535, 265], [500, 305],
-    [470, 365], [540, 385], [615, 385], [690, 385],
+    [550, 245], [610, 245], [670, 245], [730, 245], [790, 245], [850, 245],
+    [910, 245], [970, 245], [1030, 245], [1090, 245], [1150, 245],
+    [590, 305], [590, 365], [590, 425], [650, 475], [710, 475],
+    [770, 475], [830, 475], [890, 475], [950, 475], [1010, 475],
+    [1040, 420], [1040, 365], [1040, 310], [1040, 255],
   ]
   flowPositions.forEach(([x, y]) => {
     const dot = new Graphics().circle(0, 0, 4).fill(colors.teal)
@@ -685,22 +949,41 @@ function createEnvironmentEffects(world: Container, embeddedScene = false): Envi
     flowDots.push(dot)
     world.addChild(dot)
   })
-  if (embeddedScene) flowDots.forEach((dot) => { dot.visible = false })
-
+  const flowArrows = [
+    [680, 245, 0],
+    [820, 245, 0],
+    [960, 245, 0],
+    [1100, 245, 0],
+    [590, 350, Math.PI / 2],
+    [700, 475, 0],
+    [835, 475, 0],
+    [960, 475, 0],
+    [1040, 400, -Math.PI / 2],
+    [1040, 310, -Math.PI / 2],
+  ].map(([x, y, angle]) => {
+    const view = new Graphics()
+      .poly([-10, -7, 3, -7, 3, -12, 14, 0, 3, 12, 3, 7, -10, 7])
+      .fill(colors.amber)
+    view.position.set(x, y)
+    view.rotation = angle
+    view.alpha = 0.28
+    world.addChild(view)
+    return { view, baseX: x, baseY: y, angle }
+  })
   const leak = new Graphics().ellipse(0, 0, 48, 28).fill({ color: 0xb94a2e, alpha: 0.6 })
-  leak.x = embeddedScene ? 1170 : 575
-  leak.y = embeddedScene ? 615 : 455
+  leak.x = 1150
+  leak.y = 530
   world.addChild(leak)
 
   const alarmRing = new Graphics().circle(0, 0, 15).stroke({ color: colors.red, width: 2 })
-  alarmRing.x = embeddedScene ? 1515 : 842
-  alarmRing.y = embeddedScene ? 70 : 60
+  alarmRing.x = 1340
+  alarmRing.y = 62
   const alarm = new Graphics().circle(0, 0, 7).fill(colors.red)
-  alarm.x = embeddedScene ? 1515 : 842
-  alarm.y = embeddedScene ? 70 : 60
+  alarm.x = 1340
+  alarm.y = 62
   world.addChild(alarmRing, alarm)
 
-  return { flowDots, leak, alarm, alarmRing }
+  return { flowDots, flowArrows, leak, alarm, alarmRing }
 }
 
 function updateEnvironmentEffects(
@@ -715,6 +998,14 @@ function updateEnvironmentEffects(
     const wave = (Math.sin(elapsed * (flowActive ? 7 : 2) - index * 0.8) + 1) / 2
     dot.alpha = flowActive || isolated ? 0.28 + wave * 0.72 : 0.08 + wave * 0.2
     dot.tint = isolated ? colors.teal : flowActive ? colors.blue : colors.amber
+  })
+  effects.flowArrows.forEach((marker, index) => {
+    const speed = flowActive || isolated ? 5.5 : 1.8
+    const travel = ((elapsed * speed + index * 0.7) % 1) * 12
+    marker.view.x = marker.baseX + Math.cos(marker.angle) * travel
+    marker.view.y = marker.baseY + Math.sin(marker.angle) * travel
+    marker.view.alpha = flowActive || isolated ? 0.72 + Math.sin(elapsed * 6 + index) * 0.2 : 0.18
+    marker.view.tint = isolated ? colors.teal : flowActive ? colors.blue : colors.amber
   })
 
   const leakScale = isolated ? 0.35 : 0.85 + state.risk / 180
@@ -759,13 +1050,25 @@ function getPressureValue(
 function createPlayer(texture?: Texture) {
   const player = new Container()
   const shadow = new Graphics().ellipse(4, 14, 18, 9).fill({ color: 0x000000, alpha: 0.42 })
+  const tool = new Graphics()
+    .moveTo(12, -15).lineTo(21, -27)
+    .stroke({ color: colors.amber, width: 4 })
+    .circle(23, -29, 5)
+    .stroke({ color: colors.amber, width: 3 })
+  tool.label = 'carried-tool'
+  tool.visible = false
+  const ppe = new Graphics()
+    .circle(0, 6, 23)
+    .stroke({ color: colors.teal, width: 2, alpha: 0.88 })
+  ppe.label = 'ppe-indicator'
+  ppe.visible = false
   if (texture) {
     const sprite = new Sprite(texture)
     sprite.label = 'player-sprite'
     sprite.anchor.set(0.5, 0.88)
     sprite.width = 28
     sprite.height = 80
-    player.addChild(shadow, sprite)
+    player.addChild(shadow, ppe, sprite, tool)
     return player
   }
   const body = new Graphics()
@@ -777,7 +1080,7 @@ function createPlayer(texture?: Texture) {
     .arc(0, -23, 12, Math.PI, Math.PI * 2).fill(0xf0c447).stroke({ color: 0xffe78a, width: 2 })
     .rect(-12, -24, 24, 4).fill(0xd19a26)
     .moveTo(0, -36).lineTo(-5, -29).lineTo(5, -29).closePath().fill(0xeafffa)
-  player.addChild(shadow, body)
+  player.addChild(shadow, ppe, body, tool)
   return player
 }
 
@@ -795,6 +1098,146 @@ function createPrompt() {
   return prompt
 }
 
+function createFeedbackBanner() {
+  const banner = new Container()
+  banner.position.set(WIDTH / 2, 34)
+  banner.visible = false
+  const plate = new Graphics()
+    .roundRect(-270, -18, 540, 42, 8)
+    .fill({ color: 0x10231f, alpha: 0.96 })
+    .stroke({ color: 0x63dec3, width: 1, alpha: 0.9 })
+  plate.label = 'feedback-plate'
+  const label = new Text({
+    label: 'feedback-label',
+    text: '',
+    style: {
+      fill: 0xf0faf7,
+      fontSize: 13,
+      fontFamily: 'sans-serif',
+      fontWeight: '600',
+    },
+  })
+  label.anchor.set(0.5)
+  label.y = 3
+  banner.addChild(plate, label)
+  return banner
+}
+
+function createDangerVignette() {
+  const vignette = new Graphics()
+    .rect(0, 0, WIDTH, HEIGHT)
+    .fill({ color: 0x7a0d16, alpha: 0.12 })
+    .stroke({ color: colors.red, width: 34, alpha: 0.78 })
+    .rect(18, 18, WIDTH - 36, HEIGHT - 36)
+    .stroke({ color: 0xff3038, width: 12, alpha: 0.38 })
+  vignette.alpha = 0
+  return vignette
+}
+
+function createRiskIndicator() {
+  const indicator = new Container()
+  indicator.position.set(WIDTH - 126, 44)
+  indicator.visible = false
+  const plate = new Graphics()
+    .roundRect(-94, -21, 188, 48, 7)
+    .fill({ color: 0x3b0d12, alpha: 0.94 })
+    .stroke({ color: colors.red, width: 2, alpha: 0.9 })
+  const label = new Text({
+    label: 'risk-label',
+    text: '风险上升',
+    style: { fill: 0xffd5d6, fontSize: 13, fontFamily: 'sans-serif', fontWeight: '700' },
+  })
+  label.anchor.set(0.5)
+  label.y = -4
+  const bar = new Graphics()
+  bar.label = 'risk-bar'
+  indicator.addChild(plate, label, bar)
+  return indicator
+}
+
+function createTimeWarning() {
+  const warning = new Container()
+  warning.position.set(WIDTH / 2, HEIGHT - 38)
+  warning.visible = false
+  const plate = new Graphics()
+    .roundRect(-104, -18, 208, 38, 7)
+    .fill({ color: 0x4a2b0c, alpha: 0.94 })
+    .stroke({ color: colors.amber, width: 2, alpha: 0.92 })
+  const label = new Text({
+    label: 'time-label',
+    text: '',
+    style: { fill: 0xffe1aa, fontSize: 14, fontFamily: 'monospace', fontWeight: '700' },
+  })
+  label.anchor.set(0.5)
+  label.y = 1
+  warning.addChild(plate, label)
+  return warning
+}
+
+function createInventoryHud() {
+  const hud = new Container()
+  hud.position.set(18, HEIGHT - 58)
+  const plate = new Graphics()
+    .roundRect(0, 0, 270, 40, 7)
+    .fill({ color: 0x071115, alpha: 0.92 })
+    .stroke({ color: 0x34564f, width: 1, alpha: 0.9 })
+  const title = new Text({
+    text: '随身装备',
+    style: { fill: 0x56d9bd, fontSize: 9, fontFamily: 'monospace', fontWeight: '700' },
+  })
+  title.position.set(12, 6)
+  const label = new Text({
+    label: 'inventory-label',
+    text: '暂无装备',
+    style: { fill: 0xd6e3df, fontSize: 11, fontFamily: 'sans-serif', fontWeight: '600' },
+  })
+  label.position.set(12, 21)
+  hud.addChild(plate, title, label)
+  return hud
+}
+
+function createGuidanceBeacon() {
+  const beacon = new Container()
+  const ring = new Graphics()
+    .circle(0, 0, 58)
+    .fill({ color: colors.teal, alpha: 0.05 })
+    .stroke({ color: colors.teal, width: 3, alpha: 0.72 })
+    .circle(0, 0, 48)
+    .stroke({ color: colors.teal, width: 1, alpha: 0.32 })
+  const marker = new Text({
+    text: '目标',
+    style: { fill: 0xa5f4e2, fontSize: 11, fontFamily: 'sans-serif', fontWeight: '700' },
+  })
+  marker.anchor.set(0.5)
+  marker.y = 48
+  beacon.addChild(ring, marker)
+  return beacon
+}
+
+function getGuidanceEntityId(state: SimulationState) {
+  if (!state.flags.includes('remote-pressure-read')) return 'remote-pressure'
+  if (!state.flags.includes('pressure-confirmed')) return 'pressure-gauge'
+  if (!state.flags.includes('main-pump-checked')) return 'main-pump'
+  if (!state.flags.includes('backup-checked')) return 'backup-pump'
+  if (!state.flags.includes('leak-identified')) return 'branch-valve'
+  if (!state.flags.includes('supply-protected')) return 'backup-pump'
+  if (!state.flags.includes('valve-tool-carried')) return 'safety-cabinet'
+  if (!state.flags.includes('leak-isolated')) return 'branch-valve'
+  if (!state.flags.includes('response-reported')) return 'control-terminal'
+  return undefined
+}
+
+function isEntityResolved(entity: ScenarioEntity, state: SimulationState) {
+  if (entity.id === 'backup-pump') return state.flags.includes('backup-running')
+  if (entity.id === 'oil-filter') return state.flags.includes('filter-restored') || state.flags.includes('filter-checked')
+  if (entity.id === 'branch-valve') return state.flags.includes('leak-isolated')
+  if (entity.id === 'healthy-valve') return state.flags.includes('healthy-branch-checked')
+  if (entity.id === 'control-terminal') return state.flags.includes('response-reported')
+  if (entity.id === 'safety-cabinet') return state.inventoryItemIds.length >= 2
+  if (entity.id === 'oil-leak') return state.flags.includes('leak-identified')
+  return entity.actions.some((action) => state.completedActionIds.includes(action.id))
+}
+
 function findNearbyEntity(x: number, y: number, entities: ScenarioEntity[]) {
   return entities.find((entity) => Math.hypot(entity.x - x, entity.y - y) <= entity.interactionRadius)
 }
@@ -805,6 +1248,11 @@ function isBlocked(x: number, y: number) {
     x - PLAYER_RADIUS < obstacle.x + obstacle.width &&
     y + PLAYER_RADIUS > obstacle.y &&
     y - PLAYER_RADIUS < obstacle.y + obstacle.height,
+  ) || structuralWalls.some((wall) =>
+    x + PLAYER_RADIUS > wall.x &&
+    x - PLAYER_RADIUS < wall.x + wall.width &&
+    y + PLAYER_RADIUS > wall.y &&
+    y - PLAYER_RADIUS < wall.y + wall.height,
   )
 }
 
