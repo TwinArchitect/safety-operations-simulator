@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
-import { PixiScene } from './game/PixiScene'
+import { PixiScene } from './game-2d/PixiScene'
+import { ThreeScene } from './game-3d/ThreeScene'
+import type { CameraMode } from './game-3d/ThreeScene'
 import { SimulationEngine } from './simulation/SimulationEngine'
 import { scenarioCatalog } from './simulation/scenarioVariants'
+
+type RuntimeMode = '2d' | '3d'
 
 interface ExamResult {
   scenarioId: string
@@ -14,6 +18,8 @@ interface ExamResult {
 }
 
 function App() {
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>('3d')
+  const [cameraMode, setCameraMode] = useState<CameraMode>('third-person')
   const [selectedScenarioId, setSelectedScenarioId] = useState(scenarioCatalog[0].id)
   const [examOrderIds, setExamOrderIds] = useState<string[]>([])
   const [examIndex, setExamIndex] = useState(0)
@@ -174,6 +180,11 @@ function App() {
     engine.reset()
   }
 
+  const switchRuntime = (mode: RuntimeMode) => {
+    engine.closeInteraction()
+    setRuntimeMode(mode)
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -211,16 +222,28 @@ function App() {
             <div>
               <span className="live-pill"><i /> LIVE SIMULATION</span>
               <span className="role-label">角色：{scenario.role}</span>
+              <div className="runtime-switch" aria-label="场景维度切换">
+                <button className={runtimeMode === '3d' ? 'active' : ''} onClick={() => switchRuntime('3d')} type="button">3D</button>
+                <button className={runtimeMode === '2d' ? 'active' : ''} onClick={() => switchRuntime('2d')} type="button">2D</button>
+              </div>
+              {runtimeMode === '3d' && (
+                <div className="runtime-switch camera-switch" aria-label="三维视角切换">
+                  <button className={cameraMode === 'third-person' ? 'active' : ''} onClick={() => setCameraMode('third-person')} type="button">第三人称</button>
+                  <button className={cameraMode === 'first-person' ? 'active' : ''} onClick={() => setCameraMode('first-person')} type="button">第一人称</button>
+                </div>
+              )}
             </div>
             <div className="control-hints">
-              <kbd>WASD</kbd> 移动 <kbd>SHIFT</kbd> 快跑 <kbd>E</kbd> 交互 <kbd>I</kbd> 装备 <kbd>R</kbd> 重置
+              {runtimeMode === '2d' ? <><kbd>WASD</kbd> 移动 <kbd>SHIFT</kbd> 快跑 <kbd>E</kbd> 交互 <kbd>I</kbd> 装备 <kbd>R</kbd> 重置</> : <><kbd>WASD</kbd> 移动 <kbd>鼠标</kbd> 转向 <kbd>SHIFT</kbd> 快跑 <kbd>E</kbd> 交互</>}
               <button className="panel-toggle" onClick={() => setSidePanelOpen((open) => !open)} type="button">
                 <kbd>TAB</kbd> 任务 <span>{scenario.objectives.filter((objective) => objective.completionFlags.every((flag) => state.flags.includes(flag))).length}/{scenario.objectives.length}</span>
               </button>
             </div>
           </div>
           <div className={`scene-viewport${activeEntity && state.phase === 'running' ? ' interaction-active' : ''}`}>
-            <PixiScene engine={engine} />
+            {runtimeMode === '3d'
+              ? <div className="three-host"><ThreeScene cameraMode={cameraMode} engine={engine} /></div>
+              : <PixiScene engine={engine} />}
 
             {activeEntity && state.phase === 'running' && (
               <section className="interaction-drawer" role="dialog" aria-label={`${activeEntity.name}操作面板`}>

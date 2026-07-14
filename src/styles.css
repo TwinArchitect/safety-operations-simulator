@@ -109,6 +109,11 @@ h1 { margin: 3px 0 2px; font-size: clamp(20px, 1.8vw, 27px); line-height: 1.12; 
 
 .scene-toolbar { flex: 0 0 52px; min-height: 52px; padding: 0 17px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #22333a; background: linear-gradient(90deg, #0d181c, #0a1216); }
 .scene-toolbar > div { gap: 14px; }
+.runtime-switch { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid #2b4047; border-radius: 6px; background: #071115; }
+.runtime-switch button { min-width: 34px; height: 25px; padding: 0 8px; border: 0; border-radius: 4px; color: #6f838a; background: transparent; font: 600 9px 'IBM Plex Mono', monospace; cursor: pointer; }
+.runtime-switch button.active { color: #071411; background: #4bd8ba; }
+.camera-switch button { min-width: 58px; }
+.runtime-status { color: #6f838a; font: 500 9px 'IBM Plex Mono', monospace; }
 .live-pill { color: #70e5ca; font: 600 10px 'IBM Plex Mono', monospace; letter-spacing: 0.1em; }
 .live-pill i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #45d6b5; box-shadow: 0 0 9px #45d6b5; }
 .role-label { padding-left: 14px; border-left: 1px solid #25333a; color: #74858c; font-size: 11px; }
@@ -118,6 +123,13 @@ h1 { margin: 3px 0 2px; font-size: clamp(20px, 1.8vw, 27px); line-height: 1.12; 
 kbd { min-width: 24px; padding: 4px 6px; color: #bdc9ce; background: #141e23; border: 1px solid #2a3940; border-bottom-width: 2px; border-radius: 4px; font: 600 9px 'IBM Plex Mono', monospace; text-align: center; }
 
 .scene-viewport { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #111c22; }
+.three-host { position: absolute; inset: 0; }
+.three-label { display: block; padding: 4px 7px; border: 1px solid #35515a; border-radius: 4px; color: #dbe8eb; background: rgba(5, 13, 17, .88); box-shadow: 0 5px 14px rgba(0, 0, 0, .3); font-size: 9px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+.three-crosshair { position: absolute; z-index: 2; left: 50%; top: 50%; width: 5px; height: 5px; transform: translate(-50%, -50%); border: 1px solid rgba(226, 246, 241, .9); border-radius: 50%; box-shadow: 0 0 0 3px rgba(5, 14, 17, .35); pointer-events: none; }
+.three-pointer-hint { position: absolute; z-index: 3; left: 50%; top: 50%; padding: 10px 16px; transform: translate(-50%, 22px); border: 1px solid #3b5a62; border-radius: 6px; color: #d4e3e6; background: rgba(5, 14, 17, .9); font-size: 11px; pointer-events: none; }
+.three-use-prompt { position: absolute; z-index: 3; left: 50%; bottom: 32px; min-width: 180px; padding: 10px 14px 12px; overflow: hidden; transform: translateX(-50%); border: 1px solid #46d8b9; border-radius: 7px; color: #eafffa; background: rgba(5, 14, 17, .94); box-shadow: 0 8px 28px rgba(0, 0, 0, .42); text-align: center; white-space: nowrap; pointer-events: none; }
+.three-use-prompt strong { font-size: 11px; }
+.three-use-prompt i { position: absolute; inset: auto 0 0; height: 3px; background: #4bd8ba; transform-origin: left; }
 .scene-viewport::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: rgba(3, 8, 11, 0); transition: background 180ms ease; }
 .scene-viewport.interaction-active::after { background: rgba(3, 8, 11, .46); }
 .pixi-host { width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; overflow: hidden; }
