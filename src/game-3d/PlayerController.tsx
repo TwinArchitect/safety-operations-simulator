@@ -94,7 +94,7 @@ export function PlayerController({ cameraMode, engine, onHoldProgressChange, onN
   const cameraPitch = useRef(0)
   const targetCameraYaw = useRef(0)
   const targetCameraPitch = useRef(0)
-  const nearbyEntityIdRef = useRef<string>()
+  const nearbyEntityIdRef = useRef<string | undefined>(undefined)
   const enteredZoneIds = useRef(new Set<string>())
   const [nearbyEntityId, setNearbyEntityId] = useState<string>()
   const [holdProgress, setHoldProgress] = useState(0)
