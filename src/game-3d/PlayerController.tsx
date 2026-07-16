@@ -49,6 +49,14 @@ function WorkerAvatar({ moving, visible }: { moving: boolean; visible: boolean }
   const groupRef = useRef<Group>(null)
   const { animations, scene } = useGLTF(PLAYER_MODEL_URL)
   const model = useMemo(() => clone(scene), [scene])
+  const hips = useMemo(() => model.getObjectByName('mixamorig:Hips_01'), [model])
+  const walkOrigin = useMemo(() => {
+    const walkClip = animations.find((clip) => clip.name === 'Armature|Walk')
+    const track = walkClip?.tracks.find((item) => (
+      item.name.includes('mixamorig:Hips_01') && item.name.endsWith('.position')
+    ))
+    return track ? { x: track.values[0], z: track.values[2] } : undefined
+  }, [animations])
   const inPlaceAnimations = useMemo(() => animations.map((clip) => {
     const nextClip = clip.clone()
     if (nextClip.name !== 'Armature|Walk') return nextClip
@@ -68,6 +76,14 @@ function WorkerAvatar({ moving, visible }: { moving: boolean; visible: boolean }
     return nextClip
   }), [animations])
   const { actions } = useAnimations(inPlaceAnimations, groupRef)
+
+  useFrame(() => {
+    if (!moving || !hips || !walkOrigin) return
+    // The source clip contains 1.87m of root motion and snaps back when looping.
+    // Player movement is controlled by the game world, so keep the animated rig in place.
+    hips.position.x = walkOrigin.x
+    hips.position.z = walkOrigin.z
+  })
 
   useEffect(() => {
     model.traverse((object) => {
