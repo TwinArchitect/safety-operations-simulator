@@ -49,7 +49,25 @@ function WorkerAvatar({ moving, visible }: { moving: boolean; visible: boolean }
   const groupRef = useRef<Group>(null)
   const { animations, scene } = useGLTF(PLAYER_MODEL_URL)
   const model = useMemo(() => clone(scene), [scene])
-  const { actions } = useAnimations(animations, groupRef)
+  const inPlaceAnimations = useMemo(() => animations.map((clip) => {
+    const nextClip = clip.clone()
+    if (nextClip.name !== 'Armature|Walk') return nextClip
+
+    const hipsPosition = nextClip.tracks.find((track) => (
+      track.name.includes('mixamorig:Hips_01') && track.name.endsWith('.position')
+    ))
+    if (!hipsPosition) return nextClip
+
+    const values = hipsPosition.values
+    const initialX = values[0]
+    const initialZ = values[2]
+    for (let index = 0; index < values.length; index += 3) {
+      values[index] = initialX
+      values[index + 2] = initialZ
+    }
+    return nextClip
+  }), [animations])
+  const { actions } = useAnimations(inPlaceAnimations, groupRef)
 
   useEffect(() => {
     model.traverse((object) => {
@@ -301,7 +319,12 @@ export function PlayerController({ cameraMode, engine, onHoldProgressChange, onN
   })
 
   return (
-    <group ref={playerRef} position={[-2.6, 0, 3.75]} userData={{ ignoreCameraCollision: true }}>
+    <group
+      ref={playerRef}
+      position={[-2.6, 0, 3.75]}
+      rotation={[0, Math.PI, 0]}
+      userData={{ ignoreCameraCollision: true }}
+    >
       <WorkerAvatar moving={moving} visible={cameraMode === 'third-person'} />
     </group>
   )
