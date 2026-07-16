@@ -241,9 +241,11 @@ function App() {
             </div>
           </div>
           <div className={`scene-viewport${activeEntity && state.phase === 'running' ? ' interaction-active' : ''}`}>
-            {runtimeMode === '3d'
-              ? <div className="three-host"><ThreeScene cameraMode={cameraMode} engine={engine} /></div>
-              : <PixiScene engine={engine} />}
+            {(state.phase === 'ready' || state.phase === 'running') && (
+              runtimeMode === '3d'
+                ? <div className="three-host"><ThreeScene cameraMode={cameraMode} engine={engine} /></div>
+                : <PixiScene engine={engine} />
+            )}
 
             {activeEntity && state.phase === 'running' && (
               <section className="interaction-drawer" role="dialog" aria-label={`${activeEntity.name}操作面板`}>
