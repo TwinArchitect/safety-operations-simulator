@@ -24,7 +24,7 @@ const PLAYER_RADIUS = 0.32
 const WORLD_LIMIT_X = 8.55
 const WORLD_LIMIT_Z = 5.05
 const INTERACTION_HOLD_SECONDS = 0.7
-const PLAYER_MODEL_URL = '/models/construction_worker.glb'
+const PLAYER_MODEL_URL = '/models/construction_worker_inplace.glb'
 
 interface CollisionBox {
   minX: number
@@ -49,41 +49,7 @@ function WorkerAvatar({ moving, visible }: { moving: boolean; visible: boolean }
   const groupRef = useRef<Group>(null)
   const { animations, scene } = useGLTF(PLAYER_MODEL_URL)
   const model = useMemo(() => clone(scene), [scene])
-  const hips = useMemo(() => model.getObjectByName('mixamorig:Hips_01'), [model])
-  const walkOrigin = useMemo(() => {
-    const walkClip = animations.find((clip) => clip.name === 'Armature|Walk')
-    const track = walkClip?.tracks.find((item) => (
-      item.name.includes('mixamorig:Hips_01') && item.name.endsWith('.position')
-    ))
-    return track ? { x: track.values[0], z: track.values[2] } : undefined
-  }, [animations])
-  const inPlaceAnimations = useMemo(() => animations.map((clip) => {
-    const nextClip = clip.clone()
-    if (nextClip.name !== 'Armature|Walk') return nextClip
-
-    const hipsPosition = nextClip.tracks.find((track) => (
-      track.name.includes('mixamorig:Hips_01') && track.name.endsWith('.position')
-    ))
-    if (!hipsPosition) return nextClip
-
-    const values = hipsPosition.values
-    const initialX = values[0]
-    const initialZ = values[2]
-    for (let index = 0; index < values.length; index += 3) {
-      values[index] = initialX
-      values[index + 2] = initialZ
-    }
-    return nextClip
-  }), [animations])
-  const { actions } = useAnimations(inPlaceAnimations, groupRef)
-
-  useFrame(() => {
-    if (!moving || !hips || !walkOrigin) return
-    // The source clip contains 1.87m of root motion and snaps back when looping.
-    // Player movement is controlled by the game world, so keep the animated rig in place.
-    hips.position.x = walkOrigin.x
-    hips.position.z = walkOrigin.z
-  })
+  const { actions } = useAnimations(animations, groupRef)
 
   useEffect(() => {
     model.traverse((object) => {
